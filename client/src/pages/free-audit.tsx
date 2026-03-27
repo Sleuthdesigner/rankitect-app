@@ -14,6 +14,7 @@ import {
   Sparkles, ChevronRight, Eye,
 } from "lucide-react";
 
+type CheckItem = { check: string; status: string; finding: string; recommendation: string };
 type AuditResult = {
   businessName?: string;
   industry?: string;
@@ -22,6 +23,11 @@ type AuditResult = {
   weaknesses?: string[];
   quickWins?: string[];
   summary?: string;
+  technicalSEO?: CheckItem[];
+  onPageSEO?: CheckItem[];
+  socialMedia?: CheckItem[];
+  performance?: CheckItem[];
+  categoryScores?: { technicalSEO: number; onPageSEO: number; content: number; socialPresence: number; performance: number };
 };
 
 function RankitectLogo() {
@@ -63,6 +69,59 @@ function ScoreGauge({ score }: { score: number }) {
       <div className="flex items-center gap-1.5">
         <Icon className="h-4 w-4" style={{ color }} />
         <span className="text-sm font-semibold" style={{ color }}>{label}</span>
+      </div>
+    </div>
+  );
+}
+
+function StatusIcon({ status }: { status: string }) {
+  if (status === "PASS") return <CheckCircle2 className="h-4 w-4 text-emerald-400 flex-shrink-0" />;
+  if (status === "WARN") return <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />;
+  return <XCircle className="h-4 w-4 text-red-400 flex-shrink-0" />;
+}
+
+function CheckSection({ title, icon: Icon, items }: { title: string; icon: any; items?: CheckItem[] }) {
+  if (!items || items.length === 0) return null;
+  const passCount = items.filter(i => i.status === "PASS").length;
+  const warnCount = items.filter(i => i.status === "WARN").length;
+  const failCount = items.filter(i => i.status === "FAIL").length;
+  return (
+    <div className="card-glass overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-[#2A2E36] flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Icon className="h-4 w-4 text-[#13e4e6]" />
+          <span className="text-sm font-semibold text-[#FDFDFD]">{title}</span>
+        </div>
+        <div className="flex items-center gap-2 text-[10px] font-semibold">
+          {passCount > 0 && <span className="text-emerald-400">{passCount} pass</span>}
+          {warnCount > 0 && <span className="text-amber-400">{warnCount} warn</span>}
+          {failCount > 0 && <span className="text-red-400">{failCount} fail</span>}
+        </div>
+      </div>
+      <div className="divide-y divide-[#2A2E36]/50">
+        {items.map((item, i) => (
+          <div key={i} className="px-4 py-3">
+            <div className="flex items-start gap-2.5">
+              <StatusIcon status={item.status} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-[#FDFDFD]">{item.check}</span>
+                  <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                    item.status === "PASS" ? "bg-emerald-500/10 text-emerald-400" :
+                    item.status === "WARN" ? "bg-amber-500/10 text-amber-400" :
+                    "bg-red-500/10 text-red-400"
+                  }`}>{item.status}</span>
+                </div>
+                <p className="text-[11px] text-[#FDFDFD]/70 mt-0.5 leading-relaxed">{item.finding}</p>
+                {item.recommendation && item.status !== "PASS" && (
+                  <p className="text-[11px] text-[#13e4e6]/80 mt-1 leading-relaxed">
+                    <span className="font-semibold">Fix:</span> {item.recommendation}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -237,20 +296,33 @@ export default function FreeAuditPage() {
               </div>
             </div>
 
-            {/* Stats Row */}
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: "Strengths", val: audit.strengths?.length || 0, color: "#22c55e", icon: CheckCircle2 },
-                { label: "Issues", val: audit.weaknesses?.length || 0, color: "#ef4444", icon: XCircle },
-                { label: "Quick Wins", val: audit.quickWins?.length || 0, color: "#13e4e6", icon: Zap },
-              ].map((s, i) => (
-                <div key={i} className="card-glass p-3 text-center">
-                  <s.icon className="h-5 w-5 mx-auto mb-1" style={{ color: s.color }} />
-                  <p className="text-2xl font-extrabold" style={{ color: s.color }}>{s.val}</p>
-                  <p className="text-[10px] text-[#74727B] uppercase font-semibold">{s.label}</p>
-                </div>
-              ))}
-            </div>
+            {/* Category Scores */}
+            {audit.categoryScores && (
+              <div className="grid grid-cols-5 gap-2">
+                {[
+                  { label: "Technical", val: audit.categoryScores.technicalSEO, icon: Shield },
+                  { label: "On-Page", val: audit.categoryScores.onPageSEO, icon: Eye },
+                  { label: "Content", val: audit.categoryScores.content, icon: Sparkles },
+                  { label: "Social", val: audit.categoryScores.socialPresence, icon: Globe },
+                  { label: "Speed", val: audit.categoryScores.performance, icon: Zap },
+                ].map((s, i) => {
+                  const color = s.val >= 75 ? "#22c55e" : s.val >= 50 ? "#f59e0b" : "#ef4444";
+                  return (
+                    <div key={i} className="card-glass p-2.5 text-center">
+                      <s.icon className="h-4 w-4 mx-auto mb-1" style={{ color }} />
+                      <p className="text-lg font-extrabold" style={{ color }}>{s.val}</p>
+                      <p className="text-[9px] text-[#74727B] uppercase font-semibold">{s.label}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Technical SEO Checks */}
+            <CheckSection title="Technical SEO" icon={Shield} items={audit.technicalSEO} />
+            <CheckSection title="On-Page SEO" icon={Eye} items={audit.onPageSEO} />
+            <CheckSection title="Social & Sharing" icon={Globe} items={audit.socialMedia} />
+            <CheckSection title="Performance & Accessibility" icon={Zap} items={audit.performance} />
 
             {/* Strengths */}
             {audit.strengths && audit.strengths.length > 0 && (

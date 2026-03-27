@@ -735,26 +735,231 @@ function recoverData(data: any): any {
 
 // Lite analysis for embed widget
 async function runLiteAnalysis(url: string): Promise<any> {
+  // PHASE 1: Deep technical crawl
   const page = await fetchPageContent(url);
-  const text = await aiComplete("gpt5_mini", `Perform a quick SEO audit of this website and provide a summary.
+  const html = page.html;
+  const $ = cheerio.load(html);
 
-URL: ${url}
-Title: ${page.title}
-Meta tags: ${JSON.stringify(page.meta)}
-Page content (excerpt): ${page.text.slice(0, 3000)}
+  // --- Meta & Head Checks ---
+  const title = page.title;
+  const titleLen = title.length;
+  const metaDesc = page.meta["description"] || page.meta["og:description"] || "";
+  const metaDescLen = metaDesc.length;
+  const canonical = $("link[rel='canonical']").attr("href") || "";
+  const viewport = $("meta[name='viewport']").attr("content") || "";
+  const charset = $("meta[charset]").attr("charset") || $("meta[http-equiv='Content-Type']").attr("content") || "";
+  const robots = page.meta["robots"] || "";
+  const ogTitle = page.meta["og:title"] || "";
+  const ogDesc = page.meta["og:description"] || "";
+  const ogImage = page.meta["og:image"] || "";
+  const ogType = page.meta["og:type"] || "";
+  const twitterCard = page.meta["twitter:card"] || "";
+  const twitterTitle = page.meta["twitter:title"] || "";
+  const favicon = $("link[rel='icon'], link[rel='shortcut icon']").attr("href") || "";
+  const lang = $("html").attr("lang") || "";
+
+  // --- Schema / Structured Data ---
+  const schemaScripts: string[] = [];
+  $("script[type='application/ld+json']").each((_, el) => {
+    const txt = $(el).html() || "";
+    if (txt.length > 5) schemaScripts.push(txt.slice(0, 500));
+  });
+  const hasSchema = schemaScripts.length > 0;
+
+  // --- Heading Structure ---
+  const h1s: string[] = [];
+  $("h1").each((_, el) => h1s.push($(el).text().trim().slice(0, 100)));
+  const h2s: string[] = [];
+  $("h2").each((_, el) => h2s.push($(el).text().trim().slice(0, 80)));
+  const h3s: string[] = [];
+  $("h3").each((_, el) => h3s.push($(el).text().trim().slice(0, 60)));
+
+  // --- Image Analysis ---
+  const images: { src: string; alt: string; hasAlt: boolean }[] = [];
+  $("img").each((_, el) => {
+    const alt = $(el).attr("alt") || "";
+    const src = $(el).attr("src") || $(el).attr("data-src") || "";
+    images.push({ src: src.slice(0, 120), alt: alt.slice(0, 80), hasAlt: alt.trim().length > 0 });
+  });
+  const totalImages = images.length;
+  const imagesWithAlt = images.filter(i => i.hasAlt).length;
+  const imagesMissingAlt = totalImages - imagesWithAlt;
+
+  // --- Link Analysis ---
+  const internalLinks: string[] = [];
+  const externalLinks: string[] = [];
+  const brokenLinkCandidates: string[] = [];
+  $("a").each((_, el) => {
+    const href = $(el).attr("href") || "";
+    if (!href || href.startsWith("#") || href.startsWith("javascript") || href.startsWith("mailto") || href.startsWith("tel")) return;
+    try {
+      const resolved = new URL(href, url).href;
+      const base = new URL(url);
+      if (resolved.includes(base.hostname)) internalLinks.push(resolved);
+      else externalLinks.push(resolved);
+    } catch { brokenLinkCandidates.push(href); }
+  });
+  const uniqueInternal = [...new Set(internalLinks)];
+  const uniqueExternal = [...new Set(externalLinks)];
+
+  // --- Performance Signals ---
+  const hasLazyLoad = html.includes('loading="lazy"') || html.includes("lazyload");
+  const hasMinifiedCSS = $("link[rel='stylesheet']").length > 0;
+  const inlineStyleCount = $("[style]").length;
+  const scriptCount = $("script").length;
+  const cssLinkCount = $("link[rel='stylesheet']").length;
+
+  // --- Content Analysis ---
+  const bodyText = page.text;
+  const wordCount = bodyText.split(/\s+/).filter(w => w.length > 0).length;
+  const paragraphs = $("p").length;
+  const lists = $("ul, ol").length;
+  const hasContactInfo = /(?:phone|tel|email|contact|address)/i.test(bodyText);
+  const hasCTA = /(?:get started|sign up|contact us|free|buy now|learn more|schedule|book|request|download)/i.test(bodyText);
+  const hasSSL = url.startsWith("https");
+
+  // --- Accessibility Quick Checks ---
+  const formsWithoutLabels = $("input:not([type='hidden']):not([aria-label]):not([id])").length;
+  const buttonsWithoutText = $("button:empty, button:not(:has(*))").filter((_, el) => !$(el).text().trim() && !$(el).attr("aria-label")).length;
+
+  // Build crawl report
+  const crawlReport = {
+    url,
+    meta: {
+      title: { value: title, length: titleLen, status: titleLen >= 30 && titleLen <= 60 ? "PASS" : titleLen > 0 ? "WARN" : "FAIL", note: titleLen === 0 ? "No title tag found" : titleLen < 30 ? `Too short (${titleLen} chars, aim for 30-60)` : titleLen > 60 ? `Too long (${titleLen} chars, aim for 30-60)` : `Good length (${titleLen} chars)` },
+      description: { value: metaDesc.slice(0, 160), length: metaDescLen, status: metaDescLen >= 120 && metaDescLen <= 160 ? "PASS" : metaDescLen > 0 ? "WARN" : "FAIL", note: metaDescLen === 0 ? "No meta description found" : metaDescLen < 120 ? `Too short (${metaDescLen} chars, aim for 120-160)` : metaDescLen > 160 ? `Too long (${metaDescLen} chars, aim for 120-160)` : `Good length (${metaDescLen} chars)` },
+      canonical: { value: canonical, status: canonical ? "PASS" : "WARN", note: canonical ? "Canonical tag present" : "No canonical tag — risk of duplicate content" },
+      viewport: { status: viewport ? "PASS" : "FAIL", note: viewport ? "Viewport meta set" : "Missing viewport meta — not mobile-friendly" },
+      lang: { value: lang, status: lang ? "PASS" : "WARN", note: lang ? `Language declared: ${lang}` : "No lang attribute on <html>" },
+      ssl: { status: hasSSL ? "PASS" : "FAIL", note: hasSSL ? "HTTPS enabled" : "Not using HTTPS — security and ranking risk" },
+      favicon: { status: favicon ? "PASS" : "WARN", note: favicon ? "Favicon found" : "No favicon detected" },
+      charset: { status: charset ? "PASS" : "WARN", note: charset ? "Character encoding declared" : "No charset declaration" },
+      robots: { value: robots, status: robots.includes("noindex") ? "WARN" : "PASS", note: robots.includes("noindex") ? "Page set to noindex — won't appear in search" : robots ? `Robots: ${robots}` : "No robots meta (defaults to index,follow)" },
+    },
+    socialMedia: {
+      openGraph: { title: ogTitle, description: ogDesc, image: ogImage, type: ogType, status: ogTitle && ogImage ? "PASS" : ogTitle || ogImage ? "WARN" : "FAIL", note: !ogTitle && !ogImage ? "No Open Graph tags — social shares will look generic" : !ogImage ? "Missing og:image — social shares won't have a preview image" : !ogTitle ? "Missing og:title" : "Open Graph tags configured" },
+      twitter: { card: twitterCard, title: twitterTitle, status: twitterCard ? "PASS" : "WARN", note: twitterCard ? `Twitter card: ${twitterCard}` : "No Twitter Card tags" },
+    },
+    structuredData: {
+      hasSchema,
+      schemaCount: schemaScripts.length,
+      schemas: schemaScripts.map(s => { try { const p = JSON.parse(s); return p["@type"] || "unknown"; } catch { return "invalid"; } }),
+      status: hasSchema ? "PASS" : "FAIL",
+      note: hasSchema ? `${schemaScripts.length} schema(s) found: ${schemaScripts.map(s => { try { return JSON.parse(s)["@type"]; } catch { return "?"; } }).join(", ")}` : "No structured data (JSON-LD) — missing rich snippet opportunities",
+    },
+    headings: {
+      h1Count: h1s.length,
+      h1s: h1s.slice(0, 5),
+      h2Count: h2s.length,
+      h2s: h2s.slice(0, 10),
+      h3Count: h3s.length,
+      status: h1s.length === 1 ? "PASS" : h1s.length === 0 ? "FAIL" : "WARN",
+      note: h1s.length === 0 ? "No H1 tag — critical for SEO" : h1s.length > 1 ? `${h1s.length} H1 tags found (should be exactly 1)` : "Single H1 tag — correct",
+    },
+    images: {
+      total: totalImages,
+      withAlt: imagesWithAlt,
+      missingAlt: imagesMissingAlt,
+      hasLazyLoad,
+      status: imagesMissingAlt === 0 && totalImages > 0 ? "PASS" : imagesMissingAlt > 0 ? "WARN" : totalImages === 0 ? "WARN" : "FAIL",
+      note: totalImages === 0 ? "No images found" : imagesMissingAlt === 0 ? `All ${totalImages} images have alt text` : `${imagesMissingAlt} of ${totalImages} images missing alt text`,
+      missingAltExamples: images.filter(i => !i.hasAlt).slice(0, 5).map(i => i.src),
+    },
+    links: {
+      internal: uniqueInternal.length,
+      external: uniqueExternal.length,
+      brokenCandidates: brokenLinkCandidates.length,
+      status: uniqueInternal.length >= 3 ? "PASS" : "WARN",
+      note: `${uniqueInternal.length} internal, ${uniqueExternal.length} external links`,
+    },
+    content: {
+      wordCount,
+      paragraphs,
+      lists,
+      hasCTA,
+      hasContactInfo,
+      status: wordCount >= 300 ? "PASS" : wordCount >= 100 ? "WARN" : "FAIL",
+      note: wordCount < 100 ? `Very thin content (${wordCount} words) — needs substantial copy` : wordCount < 300 ? `Light content (${wordCount} words) — aim for 500+` : `${wordCount} words — decent content volume`,
+    },
+    performance: {
+      scriptCount,
+      cssLinkCount,
+      inlineStyles: inlineStyleCount,
+      hasLazyLoad,
+      status: scriptCount <= 10 ? "PASS" : "WARN",
+      note: `${scriptCount} scripts, ${cssLinkCount} CSS files${inlineStyleCount > 20 ? `, ${inlineStyleCount} inline styles (consider external CSS)` : ""}`,
+    },
+    accessibility: {
+      formsWithoutLabels,
+      buttonsWithoutText,
+      status: formsWithoutLabels === 0 && buttonsWithoutText === 0 ? "PASS" : "WARN",
+      note: formsWithoutLabels > 0 || buttonsWithoutText > 0 ? `${formsWithoutLabels} inputs without labels, ${buttonsWithoutText} buttons without text` : "Basic accessibility checks pass",
+    },
+  };
+
+  // PHASE 2: AI analysis using the crawl data
+  const aiPrompt = `You are an expert SEO auditor. I've crawled a website and collected detailed technical data. Analyze everything and provide a thorough, specific audit.
+
+CRAWL DATA:
+${JSON.stringify(crawlReport, null, 2)}
+
+PAGE CONTENT (excerpt):
+${page.text.slice(0, 4000)}
+
+Provide an extremely detailed audit. Be SPECIFIC — reference exact issues found in the crawl data (e.g. "Your title tag is ${titleLen} characters" not "Your title could be better"). Every item should cite what you found.
 
 Return valid JSON:
 {
   "businessName": "extracted business name",
   "industry": "industry/niche",
-  "overallScore": 65,
-  "strengths": ["top 5 things the site does well for SEO"],
-  "weaknesses": ["top 5 SEO issues and missed opportunities"],
-  "quickWins": ["3 easy improvements they can make today"],
-  "summary": "2-3 sentence summary of the site's SEO health"
-}`);
+  "overallScore": <0-100 based on the technical findings>,
+  "summary": "3-4 sentence executive summary referencing specific findings",
+  "technicalSEO": [
+    { "check": "Title Tag", "status": "PASS|WARN|FAIL", "finding": "specific finding with data", "recommendation": "specific fix if needed" },
+    { "check": "Meta Description", "status": "...", "finding": "...", "recommendation": "..." },
+    { "check": "Canonical Tag", "status": "...", "finding": "...", "recommendation": "..." },
+    { "check": "HTTPS/SSL", "status": "...", "finding": "...", "recommendation": "..." },
+    { "check": "Mobile Viewport", "status": "...", "finding": "...", "recommendation": "..." },
+    { "check": "Language Declaration", "status": "...", "finding": "...", "recommendation": "..." },
+    { "check": "Structured Data", "status": "...", "finding": "...", "recommendation": "..." },
+    { "check": "Robots Directives", "status": "...", "finding": "...", "recommendation": "..." },
+    { "check": "Favicon", "status": "...", "finding": "...", "recommendation": "..." }
+  ],
+  "onPageSEO": [
+    { "check": "H1 Tag", "status": "...", "finding": "...", "recommendation": "..." },
+    { "check": "Heading Hierarchy", "status": "...", "finding": "...", "recommendation": "..." },
+    { "check": "Image Alt Text", "status": "...", "finding": "...", "recommendation": "..." },
+    { "check": "Internal Linking", "status": "...", "finding": "...", "recommendation": "..." },
+    { "check": "Content Length", "status": "...", "finding": "...", "recommendation": "..." },
+    { "check": "Call to Action", "status": "...", "finding": "...", "recommendation": "..." }
+  ],
+  "socialMedia": [
+    { "check": "Open Graph Tags", "status": "...", "finding": "...", "recommendation": "..." },
+    { "check": "Twitter Cards", "status": "...", "finding": "...", "recommendation": "..." }
+  ],
+  "performance": [
+    { "check": "Script Count", "status": "...", "finding": "...", "recommendation": "..." },
+    { "check": "Image Optimization", "status": "...", "finding": "...", "recommendation": "..." },
+    { "check": "Accessibility", "status": "...", "finding": "...", "recommendation": "..." }
+  ],
+  "strengths": ["5-8 specific things the site does well, citing exact data"],
+  "weaknesses": ["5-8 specific issues found, citing exact data"],
+  "quickWins": ["5 easy improvements ranked by impact, each with a specific action step"],
+  "categoryScores": {
+    "technicalSEO": <0-100>,
+    "onPageSEO": <0-100>,
+    "content": <0-100>,
+    "socialPresence": <0-100>,
+    "performance": <0-100>
+  }
+}`;
+
+  const text = await aiComplete("gpt5_mini", aiPrompt);
   try {
-    return parseAIJSON(text);
+    const result = parseAIJSON(text);
+    // Attach raw crawl data so the PDF can use it
+    result._crawlData = crawlReport;
+    return result;
   } catch {
     return { error: "Failed to run lite analysis" };
   }
