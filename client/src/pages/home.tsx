@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Search, Globe, FileText, Target, TrendingUp, ArrowRight, Loader2,
   Clock, CheckCircle2, AlertCircle, Palette, Sparkles, Zap, ChevronRight,
-  Eye, Scan, BookOpen,
+  Eye, Scan, BookOpen, Shield,
 } from "lucide-react";
 
 
@@ -177,6 +177,23 @@ export default function HomePage() {
                 {createProject.isPending ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Starting...</> : <><Eye className="h-4 w-4 mr-2" />Start SEO Analysis<ArrowRight className="h-4 w-4 ml-2" /></>}
               </Button>
             </form>
+          </div>
+        </div>
+
+        {/* Free Audit CTA */}
+        <div className="card-glass overflow-hidden border-[#159394]/20 hover:border-[#159394]/40 transition-all cursor-pointer" onClick={() => navigate("/free-audit")}>
+          <div className="flex items-center gap-4 p-4">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#159394]/20 to-[#6600FF]/10 flex items-center justify-center flex-shrink-0">
+              <Shield className="h-6 w-6 text-[#13e4e6]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-[#FDFDFD]">Free SEO Audit</h3>
+                <Badge className="bg-[#159394]/20 text-[#13e4e6] border-[#159394]/30 text-[9px] font-semibold uppercase">Free</Badge>
+              </div>
+              <p className="text-[11px] text-[#74727B] mt-0.5">Get an instant website health check with strengths, weaknesses, and quick wins. No credit card needed.</p>
+            </div>
+            <ArrowRight className="h-5 w-5 text-[#74727B] group-hover:text-[#13e4e6] flex-shrink-0" />
           </div>
         </div>
 

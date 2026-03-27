@@ -2034,6 +2034,226 @@ export function registerRoutes(server: Server, app: Express) {
       res.status(422).json({ error: "Failed to generate PDF: " + e.message });
     }
   });
+
+  // =============================================
+  // FREE AUDIT LEAD GEN
+  // =============================================
+  const leads: Array<{ id: number; name: string; email: string; url: string; createdAt: string; auditScore: number | null }> = [];
+  let leadId = 1;
+
+  // Save lead + run lite audit
+  app.post("/api/free-audit", async (req: Request, res: Response) => {
+    const { name, email, url } = req.body;
+    if (!name || !email || !url) return res.status(400).json({ error: "Name, email, and URL are required" });
+    try {
+      console.log(`[Free Audit] Lead: ${name} <${email}> — ${url}`);
+      const lead = { id: leadId++, name, email, url, createdAt: new Date().toISOString(), auditScore: null as number | null };
+      leads.push(lead);
+      const result = await runLiteAnalysis(url);
+      lead.auditScore = result.overallScore || null;
+      res.json({ leadId: lead.id, audit: result });
+    } catch (err: any) {
+      console.error("Free audit error:", err);
+      res.status(500).json({ error: "Analysis failed: " + err.message });
+    }
+  });
+
+  // Get all leads (admin)
+  app.get("/api/leads", (_req: Request, res: Response) => {
+    res.json(leads);
+  });
+
+  // Export leads as CSV
+  app.get("/api/leads/export", (_req: Request, res: Response) => {
+    const header = "ID,Name,Email,URL,Score,Date";
+    const rows = leads.map(l => `${l.id},"${l.name}","${l.email}","${l.url}",${l.auditScore ?? ""},"${l.createdAt}"`);
+    const csv = [header, ...rows].join("\n");
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", "attachment; filename=rankitect-leads.csv");
+    res.send(csv);
+  });
+
+  // Free audit PDF download
+  app.post("/api/free-audit/pdf", async (req: Request, res: Response) => {
+    const { audit, name, url } = req.body;
+    if (!audit) return res.status(400).json({ error: "Audit data required" });
+    try {
+      const PDFDocument = (await import("pdfkit")).default;
+      const doc = new PDFDocument({ size: "A4", margin: 45, bufferPages: true });
+      const chunks: Buffer[] = [];
+      doc.on("data", (c: Buffer) => chunks.push(c));
+
+      const TEAL = "#159394";
+      const PURPLE = "#C41BD1";
+      const DARK = "#1a1a1a";
+      const MUTED = "#6b7280";
+      const GREEN = "#22c55e";
+      const RED = "#ef4444";
+      const YELLOW = "#f59e0b";
+      const WHITE = "#ffffff";
+      const TABLE_HEADER = "#1B1B1B";
+      const LIGHT_GREEN_BG = "#f0fdf4";
+      const LIGHT_RED_BG = "#fef2f2";
+      const LIGHT_TEAL_BG = "#f0fdfa";
+      const LIGHT_GRAY = "#f3f4f6";
+      const pageW = doc.page.width;
+      const contentW = pageW - 90;
+
+      const score = audit.overallScore || 0;
+      const scoreColor = score >= 75 ? GREEN : score >= 50 ? YELLOW : RED;
+      const scoreLabel = score >= 75 ? "Good" : score >= 50 ? "Needs Work" : "Critical";
+      const bizName = audit.businessName || name || "Website";
+
+      let currentPage = 0;
+      const addFooter = (pageNum: number) => {
+        const y = doc.page.height - 35;
+        doc.save();
+        doc.moveTo(45, y).lineTo(45 + contentW, y).strokeColor(TEAL).lineWidth(0.5).stroke();
+        doc.fontSize(7).fillColor(MUTED)
+          .text(`RANKITECT by SCALZ.AI  \u2022  Free SEO Audit  \u2022  ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`, 45, y + 6, { width: contentW / 2, align: "left", lineBreak: false })
+          .text(`Page ${pageNum}`, 45, y + 6, { width: contentW, align: "right", lineBreak: false });
+        doc.restore();
+      };
+      const addHeader = () => {
+        currentPage++;
+        doc.rect(0, 0, pageW, 32).fill(TEAL);
+        doc.fontSize(8).fillColor(WHITE)
+          .text(`FREE SEO AUDIT  \u2014  ${bizName}`, 45, 10, { align: "center", width: contentW });
+        doc.fillColor(DARK); doc.y = 46;
+        addFooter(currentPage);
+      };
+      const checkPage = (n: number = 80) => {
+        if (doc.y > doc.page.height - 60 - n) { doc.addPage(); addHeader(); }
+      };
+      const h1 = (t: string) => { checkPage(60); doc.moveDown(0.3); doc.rect(45, doc.y, contentW, 28).fill(TEAL); doc.fontSize(13).fillColor(WHITE).text(t.toUpperCase(), 55, doc.y + 7, { width: contentW - 20 }); doc.fillColor(DARK).moveDown(1.2); };
+      const h2 = (t: string) => { checkPage(40); doc.moveDown(0.2); doc.fontSize(11).fillColor(TEAL).text(t); doc.moveTo(45, doc.y).lineTo(45 + contentW, doc.y).strokeColor(TEAL).lineWidth(0.5).stroke(); doc.fillColor(DARK).moveDown(0.4); };
+      const p = (t: string) => { checkPage(25); doc.fontSize(9).fillColor(DARK).text(t, { lineGap: 2.5 }); doc.moveDown(0.2); };
+      const bullet = (t: string) => { checkPage(20); doc.fontSize(9).fillColor(DARK).text(`  \u2022  ${t}`, { indent: 8, lineGap: 1.5 }); };
+
+      // COVER PAGE
+      currentPage++;
+      doc.rect(0, 0, pageW, doc.page.height).fill(WHITE);
+      doc.rect(0, 0, pageW, 8).fill(TEAL);
+      doc.rect(45, 100, 4, 50).fill(TEAL);
+      doc.rect(52, 110, 2, 25).fill(PURPLE);
+      doc.fontSize(10).fillColor(TEAL).text("FREE SEO AUDIT REPORT", 60, 105);
+      doc.fontSize(36).fillColor(DARK).text("Website", 60, 120);
+      doc.fontSize(36).fillColor(TEAL).text("Health Check", 60, 155);
+
+      const ciY = 220;
+      doc.rect(45, ciY, contentW, 55).fill(LIGHT_TEAL_BG);
+      doc.rect(45, ciY, contentW, 3).fill(TEAL);
+      doc.fontSize(8).fillColor(MUTED).text("PREPARED FOR", 60, ciY + 12);
+      doc.fontSize(18).fillColor(DARK).text(bizName, 60, ciY + 25);
+      doc.fontSize(9).fillColor(MUTED).text(url || "", 60, ciY + 45);
+
+      const scoreBoxY = 300;
+      doc.rect(45, scoreBoxY, contentW, 100).fill(LIGHT_GRAY);
+      doc.rect(45, scoreBoxY, contentW, 3).fill(scoreColor);
+      doc.fontSize(9).fillColor(MUTED).text("OVERALL SEO HEALTH SCORE", 45, scoreBoxY + 12, { width: contentW, align: "center" });
+      doc.fontSize(48).fillColor(scoreColor).text(String(score), 45, scoreBoxY + 28, { width: contentW, align: "center" });
+      doc.fontSize(12).fillColor(scoreColor).text(scoreLabel.toUpperCase(), 45, scoreBoxY + 78, { width: contentW, align: "center" });
+
+      const msY = 420;
+      const msW = contentW / 3;
+      const miniStats = [
+        { label: "Strengths", val: String(audit.strengths?.length || 0), clr: GREEN, bg: LIGHT_GREEN_BG },
+        { label: "Weaknesses", val: String(audit.weaknesses?.length || 0), clr: RED, bg: LIGHT_RED_BG },
+        { label: "Quick Wins", val: String(audit.quickWins?.length || 0), clr: TEAL, bg: LIGHT_TEAL_BG },
+      ];
+      miniStats.forEach((s, i) => {
+        const sx = 45 + i * msW;
+        doc.rect(sx + 2, msY, msW - 4, 50).fill(s.bg);
+        doc.rect(sx + 2, msY, msW - 4, 2).fill(s.clr);
+        doc.fontSize(22).fillColor(s.clr).text(s.val, sx + 2, msY + 10, { width: msW - 4, align: "center" });
+        doc.fontSize(7).fillColor(MUTED).text(s.label.toUpperCase(), sx + 2, msY + 36, { width: msW - 4, align: "center" });
+      });
+
+      doc.fontSize(8).fillColor(MUTED).text(
+        `Generated ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}  \u2022  Powered by RANKITECT by SCALZ.AI`,
+        45, doc.page.height - 60, { width: contentW, align: "center" }
+      );
+      doc.rect(0, doc.page.height - 8, pageW, 8).fill(TEAL);
+      addFooter(currentPage);
+
+      // SUMMARY PAGE
+      doc.addPage(); addHeader();
+      h1("Executive Summary");
+      if (audit.summary) p(audit.summary);
+      if (audit.industry) { doc.moveDown(0.2); doc.fontSize(9).fillColor(TEAL).text("Industry: ", { continued: true }).fillColor(DARK).text(audit.industry); }
+
+      // STRENGTHS
+      doc.moveDown(0.5);
+      h1("What's Working");
+      if (audit.strengths?.length) {
+        audit.strengths.forEach((s: string) => {
+          checkPage(22);
+          doc.rect(45, doc.y, contentW, 18).fill(LIGHT_GREEN_BG);
+          doc.fontSize(9).fillColor(GREEN).text("  \u2713  ", 50, doc.y + 4, { continued: true }).fillColor(DARK).text(s);
+          doc.moveDown(0.2);
+        });
+      } else { p("Detailed strengths are available in the full SOP report."); }
+
+      // WEAKNESSES
+      doc.moveDown(0.5);
+      h1("What Needs Improvement");
+      if (audit.weaknesses?.length) {
+        audit.weaknesses.forEach((w: string) => {
+          checkPage(22);
+          doc.rect(45, doc.y, contentW, 18).fill(LIGHT_RED_BG);
+          doc.fontSize(9).fillColor(RED).text("  \u2717  ", 50, doc.y + 4, { continued: true }).fillColor(DARK).text(w);
+          doc.moveDown(0.2);
+        });
+      } else { p("Detailed weaknesses are available in the full SOP report."); }
+
+      // QUICK WINS
+      if (audit.quickWins?.length) {
+        doc.moveDown(0.5);
+        h1("Quick Wins — Do These Today");
+        audit.quickWins.forEach((q: string, i: number) => {
+          checkPage(22);
+          doc.rect(45, doc.y, contentW, 18).fill(LIGHT_TEAL_BG);
+          doc.fontSize(9).fillColor(TEAL).text(`  ${i + 1}.  `, 50, doc.y + 4, { continued: true }).fillColor(DARK).text(q);
+          doc.moveDown(0.2);
+        });
+      }
+
+      // CTA PAGE
+      doc.addPage(); addHeader();
+      doc.moveDown(3);
+      doc.rect(45, doc.y, contentW, 140).fill(LIGHT_TEAL_BG);
+      doc.rect(45, doc.y, contentW, 3).fill(TEAL);
+      const ctaY = doc.y + 15;
+      doc.fontSize(18).fillColor(DARK).text("Ready for the Full Blueprint?", 60, ctaY, { width: contentW - 30 });
+      doc.fontSize(10).fillColor(MUTED).text(
+        "This audit is just the beginning. Get a complete SEO Standard Operating Procedure with:",
+        60, ctaY + 30, { width: contentW - 30 }
+      );
+      const features = [
+        "Deep competitor analysis with gap identification",
+        "Full keyword research with difficulty scoring",
+        "Page-by-page content blueprints with optimized structure",
+        "Technical SEO recommendations",
+        "Prioritized action plan with timelines",
+      ];
+      features.forEach((f, i) => {
+        doc.fontSize(9).fillColor(TEAL).text("\u2713", 70, ctaY + 55 + i * 14, { continued: true }).fillColor(DARK).text(`  ${f}`);
+      });
+      doc.moveDown(4);
+      doc.fontSize(14).fillColor(TEAL).text("Get Your Full SOP at rankitect.com", 45, undefined, { width: contentW, align: "center" });
+      doc.fontSize(9).fillColor(MUTED).text("Starting at $37 — one-time payment", 45, undefined, { width: contentW, align: "center" });
+
+      doc.end();
+      await new Promise<void>((resolve) => doc.on("end", resolve));
+      const pdfBuffer = Buffer.concat(chunks);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="Free-SEO-Audit-${bizName.replace(/[^a-zA-Z0-9]/g, "-")}.pdf"`);
+      res.send(pdfBuffer);
+    } catch (e: any) {
+      console.error("Free audit PDF error:", e);
+      res.status(500).json({ error: "PDF generation failed: " + e.message });
+    }
+  });
 }
 
 // Background analysis pipeline — pauses after theme analysis for page selection

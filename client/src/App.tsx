@@ -5,12 +5,14 @@ import { queryClient } from "./lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
 import HomePage from "./pages/home";
 import ProjectPage from "./pages/project";
+import FreeAuditPage from "./pages/free-audit";
 import NotFound from "./pages/not-found";
 
 function AppRouter() {
   return (
     <Switch>
       <Route path="/" component={HomePage} />
+      <Route path="/free-audit" component={FreeAuditPage} />
       <Route path="/project/:id" component={ProjectPage} />
       <Route component={NotFound} />
     </Switch>
