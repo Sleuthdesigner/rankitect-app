@@ -2300,6 +2300,7 @@ export function registerRoutes(server: Server, app: Express) {
       const LIGHT_GREEN_BG = "#f0fdf4";
       const LIGHT_RED_BG = "#fef2f2";
       const LIGHT_TEAL_BG = "#f0fdfa";
+      const LIGHT_YELLOW_BG = "#fffbeb";
       const LIGHT_GRAY = "#f3f4f6";
       const pageW = doc.page.width;
       const contentW = pageW - 90;
@@ -2308,6 +2309,7 @@ export function registerRoutes(server: Server, app: Express) {
       const scoreColor = score >= 75 ? GREEN : score >= 50 ? YELLOW : RED;
       const scoreLabel = score >= 75 ? "Good" : score >= 50 ? "Needs Work" : "Critical";
       const bizName = audit.businessName || name || "Website";
+      const dateStr = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
       let currentPage = 0;
       const addFooter = (pageNum: number) => {
@@ -2315,15 +2317,14 @@ export function registerRoutes(server: Server, app: Express) {
         doc.save();
         doc.moveTo(45, y).lineTo(45 + contentW, y).strokeColor(TEAL).lineWidth(0.5).stroke();
         doc.fontSize(7).fillColor(MUTED)
-          .text(`RANKITECT by SCALZ.AI  \u2022  Free SEO Audit  \u2022  ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`, 45, y + 6, { width: contentW / 2, align: "left", lineBreak: false })
+          .text(`RANKITECT by SCALZ.AI  \u2022  SEO Audit Report  \u2022  ${dateStr}`, 45, y + 6, { width: contentW / 2, align: "left", lineBreak: false })
           .text(`Page ${pageNum}`, 45, y + 6, { width: contentW, align: "right", lineBreak: false });
         doc.restore();
       };
       const addHeader = () => {
         currentPage++;
         doc.rect(0, 0, pageW, 32).fill(TEAL);
-        doc.fontSize(8).fillColor(WHITE)
-          .text(`FREE SEO AUDIT  \u2014  ${bizName}`, 45, 10, { align: "center", width: contentW });
+        doc.fontSize(8).fillColor(WHITE).text(`SEO AUDIT  \u2014  ${bizName}`, 45, 10, { align: "center", width: contentW });
         doc.fillColor(DARK); doc.y = 46;
         addFooter(currentPage);
       };
@@ -2333,126 +2334,316 @@ export function registerRoutes(server: Server, app: Express) {
       const h1 = (t: string) => { checkPage(60); doc.moveDown(0.3); doc.rect(45, doc.y, contentW, 28).fill(TEAL); doc.fontSize(13).fillColor(WHITE).text(t.toUpperCase(), 55, doc.y + 7, { width: contentW - 20 }); doc.fillColor(DARK).moveDown(1.2); };
       const h2 = (t: string) => { checkPage(40); doc.moveDown(0.2); doc.fontSize(11).fillColor(TEAL).text(t); doc.moveTo(45, doc.y).lineTo(45 + contentW, doc.y).strokeColor(TEAL).lineWidth(0.5).stroke(); doc.fillColor(DARK).moveDown(0.4); };
       const p = (t: string) => { checkPage(25); doc.fontSize(9).fillColor(DARK).text(t, { lineGap: 2.5 }); doc.moveDown(0.2); };
+      const pMuted = (t: string) => { checkPage(20); doc.fontSize(8.5).fillColor(MUTED).text(t, { lineGap: 2 }); doc.moveDown(0.15); };
       const bullet = (t: string) => { checkPage(20); doc.fontSize(9).fillColor(DARK).text(`  \u2022  ${t}`, { indent: 8, lineGap: 1.5 }); };
+      const kvLine = (k: string, v: string) => { checkPage(20); doc.fontSize(9).fillColor(TEAL).text(k + ": ", { continued: true }).fillColor(DARK).text(v || "N/A"); };
 
+      // Table helper
+      const drawTable = (headers: string[], rows: string[][], colWidths: number[]) => {
+        const rowH = 20;
+        const startX = 45;
+        checkPage(rowH * Math.min(rows.length + 2, 8));
+        let x = startX;
+        doc.rect(startX, doc.y, contentW, rowH).fill(TABLE_HEADER);
+        headers.forEach((h, i) => {
+          doc.fontSize(7.5).fillColor(WHITE).text(h.toUpperCase(), x + 4, doc.y + 5, { width: colWidths[i] - 8, align: "left" });
+          x += colWidths[i];
+        });
+        doc.y += rowH;
+        rows.forEach((row, rowIdx) => {
+          if (doc.y > doc.page.height - 80) { doc.addPage(); addHeader(); }
+          const bgColor = rowIdx % 2 === 0 ? "#f9fafb" : WHITE;
+          doc.rect(startX, doc.y, contentW, rowH).fill(bgColor);
+          x = startX;
+          row.forEach((cell, i) => {
+            const isStatus = i === 1 && (cell === "PASS" || cell === "WARN" || cell === "FAIL");
+            const clr = isStatus ? (cell === "PASS" ? GREEN : cell === "WARN" ? YELLOW : RED) : DARK;
+            doc.fontSize(8).fillColor(clr).text(cell || "", x + 4, doc.y + 5, { width: colWidths[i] - 8, align: "left" });
+            x += colWidths[i];
+          });
+          doc.y += rowH;
+        });
+        doc.fillColor(DARK).moveDown(0.4);
+      };
+
+      // Bar chart helper
+      const drawBarChart = (items: { label: string; value: number; color?: string }[], maxVal: number) => {
+        const barH = 18;
+        const labelW = 100;
+        items.forEach((item) => {
+          checkPage(barH + 4);
+          const barW = Math.max(4, ((item.value / maxVal) * (contentW - labelW - 60)));
+          doc.fontSize(8).fillColor(DARK).text(item.label, 55, doc.y + 3, { width: labelW });
+          doc.rect(55 + labelW, doc.y, barW, barH - 6).fill(item.color || TEAL);
+          doc.fontSize(7.5).fillColor(MUTED).text(String(item.value), 55 + labelW + barW + 4, doc.y + 3);
+          doc.y += barH;
+        });
+        doc.moveDown(0.4);
+      };
+
+      const statusIcon = (s: string) => s === "PASS" ? "\u2705" : s === "WARN" ? "\u26A0" : "\u274C";
+
+      // ================================================================
       // COVER PAGE
+      // ================================================================
       currentPage++;
       doc.rect(0, 0, pageW, doc.page.height).fill(WHITE);
       doc.rect(0, 0, pageW, 8).fill(TEAL);
-      doc.rect(45, 100, 4, 50).fill(TEAL);
-      doc.rect(52, 110, 2, 25).fill(PURPLE);
-      doc.fontSize(10).fillColor(TEAL).text("FREE SEO AUDIT REPORT", 60, 105);
-      doc.fontSize(36).fillColor(DARK).text("Website", 60, 120);
-      doc.fontSize(36).fillColor(TEAL).text("Health Check", 60, 155);
+      doc.rect(0, doc.page.height - 8, pageW, 8).fill(TEAL);
+      // Left accent bars
+      doc.rect(45, 90, 4, 60).fill(TEAL);
+      doc.rect(52, 100, 2, 30).fill(PURPLE);
 
-      const ciY = 220;
-      doc.rect(45, ciY, contentW, 55).fill(LIGHT_TEAL_BG);
+      doc.fontSize(10).fillColor(TEAL).text("SEO AUDIT REPORT", 60, 95);
+      doc.fontSize(38).fillColor(DARK).text("Website", 60, 112);
+      doc.fontSize(38).fillColor(TEAL).text("Health Check", 60, 148);
+
+      // Client info card
+      const ciY = 210;
+      doc.rect(45, ciY, contentW, 65).fill(LIGHT_TEAL_BG);
       doc.rect(45, ciY, contentW, 3).fill(TEAL);
       doc.fontSize(8).fillColor(MUTED).text("PREPARED FOR", 60, ciY + 12);
-      doc.fontSize(18).fillColor(DARK).text(bizName, 60, ciY + 25);
-      doc.fontSize(9).fillColor(MUTED).text(url || "", 60, ciY + 45);
+      doc.fontSize(20).fillColor(DARK).text(bizName, 60, ciY + 25);
+      doc.fontSize(9).fillColor(MUTED).text(url || "", 60, ciY + 48);
+      if (audit.industry) doc.fontSize(9).fillColor(MUTED).text(audit.industry, 60 + contentW / 2, ciY + 48);
 
-      const scoreBoxY = 300;
-      doc.rect(45, scoreBoxY, contentW, 100).fill(LIGHT_GRAY);
+      // Score card
+      const scoreBoxY = 295;
+      doc.rect(45, scoreBoxY, contentW, 110).fill(LIGHT_GRAY);
       doc.rect(45, scoreBoxY, contentW, 3).fill(scoreColor);
-      doc.fontSize(9).fillColor(MUTED).text("OVERALL SEO HEALTH SCORE", 45, scoreBoxY + 12, { width: contentW, align: "center" });
-      doc.fontSize(48).fillColor(scoreColor).text(String(score), 45, scoreBoxY + 28, { width: contentW, align: "center" });
-      doc.fontSize(12).fillColor(scoreColor).text(scoreLabel.toUpperCase(), 45, scoreBoxY + 78, { width: contentW, align: "center" });
+      doc.fontSize(9).fillColor(MUTED).text("OVERALL SEO HEALTH SCORE", 45, scoreBoxY + 10, { width: contentW, align: "center" });
+      doc.fontSize(56).fillColor(scoreColor).text(String(score), 45, scoreBoxY + 26, { width: contentW, align: "center" });
+      doc.fontSize(14).fillColor(scoreColor).text(scoreLabel.toUpperCase(), 45, scoreBoxY + 84, { width: contentW, align: "center" });
 
-      const msY = 420;
-      const msW = contentW / 3;
-      const miniStats = [
-        { label: "Strengths", val: String(audit.strengths?.length || 0), clr: GREEN, bg: LIGHT_GREEN_BG },
-        { label: "Weaknesses", val: String(audit.weaknesses?.length || 0), clr: RED, bg: LIGHT_RED_BG },
-        { label: "Quick Wins", val: String(audit.quickWins?.length || 0), clr: TEAL, bg: LIGHT_TEAL_BG },
+      // Category score cards
+      const cs = audit.categoryScores || {};
+      const catScores = [
+        { label: "Technical SEO", val: cs.technicalSEO || 0 },
+        { label: "On-Page SEO", val: cs.onPageSEO || 0 },
+        { label: "Content", val: cs.content || 0 },
+        { label: "Social", val: cs.socialPresence || 0 },
+        { label: "Performance", val: cs.performance || 0 },
       ];
-      miniStats.forEach((s, i) => {
-        const sx = 45 + i * msW;
-        doc.rect(sx + 2, msY, msW - 4, 50).fill(s.bg);
-        doc.rect(sx + 2, msY, msW - 4, 2).fill(s.clr);
-        doc.fontSize(22).fillColor(s.clr).text(s.val, sx + 2, msY + 10, { width: msW - 4, align: "center" });
-        doc.fontSize(7).fillColor(MUTED).text(s.label.toUpperCase(), sx + 2, msY + 36, { width: msW - 4, align: "center" });
+      const csY = 425;
+      const csW = contentW / 5;
+      catScores.forEach((c, i) => {
+        const sx = 45 + i * csW;
+        const clr = c.val >= 75 ? GREEN : c.val >= 50 ? YELLOW : RED;
+        const bg = c.val >= 75 ? LIGHT_GREEN_BG : c.val >= 50 ? LIGHT_YELLOW_BG : LIGHT_RED_BG;
+        doc.rect(sx + 2, csY, csW - 4, 55).fill(bg);
+        doc.rect(sx + 2, csY, csW - 4, 2).fill(clr);
+        doc.fontSize(24).fillColor(clr).text(String(c.val), sx + 2, csY + 10, { width: csW - 4, align: "center" });
+        doc.fontSize(7).fillColor(MUTED).text(c.label.toUpperCase(), sx + 2, csY + 38, { width: csW - 4, align: "center" });
       });
 
+      // Summary text on cover
+      if (audit.summary) {
+        doc.fontSize(9).fillColor(DARK).text(audit.summary, 45, 500, { width: contentW, lineGap: 3 });
+      }
+
       doc.fontSize(8).fillColor(MUTED).text(
-        `Generated ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}  \u2022  Powered by RANKITECT by SCALZ.AI`,
-        45, doc.page.height - 60, { width: contentW, align: "center" }
+        `Generated ${dateStr}  \u2022  Powered by RANKITECT by SCALZ.AI`,
+        45, doc.page.height - 55, { width: contentW, align: "center" }
       );
-      doc.rect(0, doc.page.height - 8, pageW, 8).fill(TEAL);
       addFooter(currentPage);
 
-      // SUMMARY PAGE
+      // ================================================================
+      // PAGE 2: TECHNICAL SEO AUDIT
+      // ================================================================
       doc.addPage(); addHeader();
-      h1("Executive Summary");
-      if (audit.summary) p(audit.summary);
-      if (audit.industry) { doc.moveDown(0.2); doc.fontSize(9).fillColor(TEAL).text("Industry: ", { continued: true }).fillColor(DARK).text(audit.industry); }
+      h1("Technical SEO Audit");
+      if (audit.technicalSEO?.length) {
+        const techHeaders = ["Check", "Status", "Finding", "Recommendation"];
+        const techColW = [contentW * 0.16, contentW * 0.1, contentW * 0.37, contentW * 0.37];
+        const techRows = audit.technicalSEO.map((t: any) => [t.check, t.status, t.finding, t.recommendation || ""]);
+        drawTable(techHeaders, techRows, techColW);
+      }
+      // Technical score bar chart
+      if (audit.technicalSEO?.length) {
+        h2("Check Results");
+        const passCount = audit.technicalSEO.filter((t: any) => t.status === "PASS").length;
+        const warnCount = audit.technicalSEO.filter((t: any) => t.status === "WARN").length;
+        const failCount = audit.technicalSEO.filter((t: any) => t.status === "FAIL").length;
+        drawBarChart([
+          { label: "Passing", value: passCount, color: GREEN },
+          { label: "Warnings", value: warnCount, color: YELLOW },
+          { label: "Failing", value: failCount, color: RED },
+        ], Math.max(passCount, warnCount, failCount, 1));
+      }
 
-      // STRENGTHS
-      doc.moveDown(0.5);
-      h1("What's Working");
-      if (audit.strengths?.length) {
-        audit.strengths.forEach((s: string) => {
-          checkPage(22);
-          doc.rect(45, doc.y, contentW, 18).fill(LIGHT_GREEN_BG);
-          doc.fontSize(9).fillColor(GREEN).text("  \u2713  ", 50, doc.y + 4, { continued: true }).fillColor(DARK).text(s);
-          doc.moveDown(0.2);
-        });
-      } else { p("Detailed strengths are available in the full SOP report."); }
-
-      // WEAKNESSES
-      doc.moveDown(0.5);
-      h1("What Needs Improvement");
-      if (audit.weaknesses?.length) {
-        audit.weaknesses.forEach((w: string) => {
-          checkPage(22);
-          doc.rect(45, doc.y, contentW, 18).fill(LIGHT_RED_BG);
-          doc.fontSize(9).fillColor(RED).text("  \u2717  ", 50, doc.y + 4, { continued: true }).fillColor(DARK).text(w);
-          doc.moveDown(0.2);
-        });
-      } else { p("Detailed weaknesses are available in the full SOP report."); }
-
-      // QUICK WINS
-      if (audit.quickWins?.length) {
-        doc.moveDown(0.5);
-        h1("Quick Wins — Do These Today");
-        audit.quickWins.forEach((q: string, i: number) => {
-          checkPage(22);
-          doc.rect(45, doc.y, contentW, 18).fill(LIGHT_TEAL_BG);
-          doc.fontSize(9).fillColor(TEAL).text(`  ${i + 1}.  `, 50, doc.y + 4, { continued: true }).fillColor(DARK).text(q);
-          doc.moveDown(0.2);
+      // ================================================================
+      // PAGE 3: ON-PAGE SEO
+      // ================================================================
+      doc.addPage(); addHeader();
+      h1("On-Page SEO Analysis");
+      if (audit.onPageSEO?.length) {
+        audit.onPageSEO.forEach((item: any) => {
+          checkPage(55);
+          const bgClr = item.status === "PASS" ? LIGHT_GREEN_BG : item.status === "WARN" ? LIGHT_YELLOW_BG : LIGHT_RED_BG;
+          const accentClr = item.status === "PASS" ? GREEN : item.status === "WARN" ? YELLOW : RED;
+          doc.rect(45, doc.y, contentW, 3).fill(accentClr);
+          doc.rect(45, doc.y + 3, contentW, 42).fill(bgClr);
+          const cardY = doc.y + 7;
+          doc.fontSize(10).fillColor(DARK).text(`${statusIcon(item.status)}  ${item.check}`, 55, cardY);
+          doc.fontSize(8).fillColor(MUTED).text(item.finding, 55, cardY + 14, { width: contentW - 30 });
+          if (item.recommendation && item.status !== "PASS") {
+            doc.fontSize(8).fillColor(TEAL).text(`Fix: ${item.recommendation}`, 55, cardY + 28, { width: contentW - 30 });
+          }
+          doc.y += 50;
+          doc.moveDown(0.15);
         });
       }
 
-      // CTA PAGE
+      // ================================================================
+      // PAGE 4: SOCIAL & SHARING
+      // ================================================================
       doc.addPage(); addHeader();
-      doc.moveDown(3);
-      doc.rect(45, doc.y, contentW, 140).fill(LIGHT_TEAL_BG);
-      doc.rect(45, doc.y, contentW, 3).fill(TEAL);
-      const ctaY = doc.y + 15;
-      doc.fontSize(18).fillColor(DARK).text("Ready for the Full Blueprint?", 60, ctaY, { width: contentW - 30 });
-      doc.fontSize(10).fillColor(MUTED).text(
-        "This audit is just the beginning. Get a complete SEO Standard Operating Procedure with:",
-        60, ctaY + 30, { width: contentW - 30 }
+      h1("Social Media & Sharing");
+      if (audit.socialMedia?.length) {
+        audit.socialMedia.forEach((item: any) => {
+          checkPage(55);
+          const bgClr = item.status === "PASS" ? LIGHT_GREEN_BG : item.status === "WARN" ? LIGHT_YELLOW_BG : LIGHT_RED_BG;
+          const accentClr = item.status === "PASS" ? GREEN : item.status === "WARN" ? YELLOW : RED;
+          doc.rect(45, doc.y, contentW, 3).fill(accentClr);
+          doc.rect(45, doc.y + 3, contentW, 42).fill(bgClr);
+          const cardY = doc.y + 7;
+          doc.fontSize(10).fillColor(DARK).text(`${statusIcon(item.status)}  ${item.check}`, 55, cardY);
+          doc.fontSize(8).fillColor(MUTED).text(item.finding, 55, cardY + 14, { width: contentW - 30 });
+          if (item.recommendation && item.status !== "PASS") {
+            doc.fontSize(8).fillColor(TEAL).text(`Fix: ${item.recommendation}`, 55, cardY + 28, { width: contentW - 30 });
+          }
+          doc.y += 50;
+          doc.moveDown(0.15);
+        });
+      }
+
+      // Performance & Accessibility
+      doc.moveDown(0.5);
+      h1("Performance & Accessibility");
+      if (audit.performance?.length) {
+        audit.performance.forEach((item: any) => {
+          checkPage(55);
+          const bgClr = item.status === "PASS" ? LIGHT_GREEN_BG : item.status === "WARN" ? LIGHT_YELLOW_BG : LIGHT_RED_BG;
+          const accentClr = item.status === "PASS" ? GREEN : item.status === "WARN" ? YELLOW : RED;
+          doc.rect(45, doc.y, contentW, 3).fill(accentClr);
+          doc.rect(45, doc.y + 3, contentW, 42).fill(bgClr);
+          const cardY = doc.y + 7;
+          doc.fontSize(10).fillColor(DARK).text(`${statusIcon(item.status)}  ${item.check}`, 55, cardY);
+          doc.fontSize(8).fillColor(MUTED).text(item.finding, 55, cardY + 14, { width: contentW - 30 });
+          if (item.recommendation && item.status !== "PASS") {
+            doc.fontSize(8).fillColor(TEAL).text(`Fix: ${item.recommendation}`, 55, cardY + 28, { width: contentW - 30 });
+          }
+          doc.y += 50;
+          doc.moveDown(0.15);
+        });
+      }
+
+      // ================================================================
+      // PAGE 5: STRENGTHS
+      // ================================================================
+      doc.addPage(); addHeader();
+      h1("What's Working Well");
+      if (audit.strengths?.length) {
+        audit.strengths.forEach((s: string) => {
+          checkPage(25);
+          doc.rect(45, doc.y, contentW, 20).fill(LIGHT_GREEN_BG);
+          doc.rect(45, doc.y, 3, 20).fill(GREEN);
+          doc.fontSize(9).fillColor(GREEN).text("  \u2713  ", 52, doc.y + 5, { continued: true }).fillColor(DARK).text(s);
+          doc.moveDown(0.3);
+        });
+      } else { p("No specific strengths identified."); }
+
+      // ================================================================
+      // PAGE 6: WEAKNESSES
+      // ================================================================
+      doc.moveDown(0.5);
+      h1("Issues & Weaknesses Found");
+      if (audit.weaknesses?.length) {
+        audit.weaknesses.forEach((w: string) => {
+          checkPage(25);
+          doc.rect(45, doc.y, contentW, 20).fill(LIGHT_RED_BG);
+          doc.rect(45, doc.y, 3, 20).fill(RED);
+          doc.fontSize(9).fillColor(RED).text("  \u2717  ", 52, doc.y + 5, { continued: true }).fillColor(DARK).text(w);
+          doc.moveDown(0.3);
+        });
+      } else { p("No critical weaknesses found."); }
+
+      // ================================================================
+      // PAGE 7: QUICK WINS
+      // ================================================================
+      doc.addPage(); addHeader();
+      h1("Quick Wins \u2014 Priority Actions");
+      pMuted("These are the highest-impact, lowest-effort improvements you can make right now.");
+      doc.moveDown(0.3);
+      if (audit.quickWins?.length) {
+        audit.quickWins.forEach((q: string, i: number) => {
+          checkPage(30);
+          doc.rect(45, doc.y, contentW, 24).fill(LIGHT_TEAL_BG);
+          doc.rect(45, doc.y, 3, 24).fill(TEAL);
+          // Priority number circle
+          doc.circle(62, doc.y + 12, 8).fill(TEAL);
+          doc.fontSize(9).fillColor(WHITE).text(String(i + 1), 55, doc.y + 7, { width: 14, align: "center" });
+          doc.fontSize(9).fillColor(DARK).text(q, 78, doc.y + 7, { width: contentW - 50 });
+          doc.moveDown(0.35);
+        });
+      }
+
+      // ================================================================
+      // SCORE SUMMARY BAR CHART
+      // ================================================================
+      doc.moveDown(0.5);
+      h1("Score Breakdown");
+      drawBarChart(
+        catScores.map(c => ({ label: c.label, value: c.val, color: c.val >= 75 ? GREEN : c.val >= 50 ? YELLOW : RED })),
+        100
       );
-      const features = [
+
+      // ================================================================
+      // CTA PAGE
+      // ================================================================
+      doc.addPage(); addHeader();
+      doc.moveDown(2);
+
+      // CTA box
+      doc.rect(45, doc.y, contentW, 200).fill(LIGHT_TEAL_BG);
+      doc.rect(45, doc.y, contentW, 4).fill(TEAL);
+      const ctaY = doc.y + 20;
+      doc.fontSize(22).fillColor(DARK).text("Ready for the Full", 60, ctaY, { width: contentW - 30 });
+      doc.fontSize(22).fillColor(TEAL).text("SEO Blueprint?", 60, ctaY + 28, { width: contentW - 30 });
+      doc.fontSize(10).fillColor(MUTED).text(
+        "This audit shows you what's wrong. The full SOP shows you exactly how to fix it \u2014 with page-by-page content blueprints, keyword targeting, and implementation timelines.",
+        60, ctaY + 62, { width: contentW - 40, lineGap: 3 }
+      );
+      const sopFeatures = [
         "Deep competitor analysis with gap identification",
         "Full keyword research with difficulty scoring",
-        "Page-by-page content blueprints with optimized structure",
-        "Technical SEO recommendations",
+        "Page-by-page content blueprints with H1/H2/H3 structure",
+        "Technical SEO implementation checklist",
+        "Content calendar with publishing schedule",
         "Prioritized action plan with timelines",
       ];
-      features.forEach((f, i) => {
-        doc.fontSize(9).fillColor(TEAL).text("\u2713", 70, ctaY + 55 + i * 14, { continued: true }).fillColor(DARK).text(`  ${f}`);
+      sopFeatures.forEach((f, i) => {
+        doc.fontSize(9).fillColor(TEAL).text("\u2713", 72, ctaY + 100 + i * 15).fillColor(DARK).text(`  ${f}`, 82, ctaY + 100 + i * 15);
       });
-      doc.moveDown(4);
-      doc.fontSize(14).fillColor(TEAL).text("Get Your Full SOP at rankitect.com", 45, undefined, { width: contentW, align: "center" });
-      doc.fontSize(9).fillColor(MUTED).text("Starting at $37 — one-time payment", 45, undefined, { width: contentW, align: "center" });
+
+      doc.moveDown(6);
+      doc.rect(45, doc.y, contentW, 40).fill(TEAL);
+      doc.fontSize(16).fillColor(WHITE).text("Get Your Full SOP", 45, doc.y + 8, { width: contentW, align: "center" });
+      doc.fontSize(10).fillColor(WHITE).text("rankitect.com  \u2022  Starting at $37", 45, doc.y + 26, { width: contentW, align: "center" });
+
+      doc.moveDown(3);
+      doc.rect(45, doc.y, contentW, 1).fill(LIGHT_GRAY);
+      doc.moveDown(0.5);
+      doc.fontSize(8).fillColor(MUTED).text(
+        "This report was generated by RANKITECT, an AI-powered SEO analysis platform by SCALZ.AI. For questions or custom enterprise audits, contact us at scalz.ai.",
+        45, undefined, { width: contentW, align: "center", lineGap: 2 }
+      );
 
       doc.end();
       await new Promise<void>((resolve) => doc.on("end", resolve));
       const pdfBuffer = Buffer.concat(chunks);
       res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename="Free-SEO-Audit-${bizName.replace(/[^a-zA-Z0-9]/g, "-")}.pdf"`);
+      res.setHeader("Content-Disposition", `attachment; filename="SEO-Audit-${bizName.replace(/[^a-zA-Z0-9]/g, "-")}.pdf"`);
       res.send(pdfBuffer);
     } catch (e: any) {
       console.error("Free audit PDF error:", e);
