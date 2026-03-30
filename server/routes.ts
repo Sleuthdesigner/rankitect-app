@@ -2576,14 +2576,14 @@ export function registerRoutes(server: Server, app: Express) {
       pMuted("These are the highest-impact, lowest-effort improvements you can make right now.");
       doc.moveDown(0.3);
       if (audit.quickWins?.length) {
-        audit.quickWins.forEach((q: string, i: number) => {
+        audit.quickWins.forEach((q: any, i: number) => { const qText = typeof q === "string" ? q : q.action ? `${q.action}${q.steps ? " — " + q.steps : ""}` : JSON.stringify(q);
           checkPage(30);
           doc.rect(45, doc.y, contentW, 24).fill(LIGHT_TEAL_BG);
           doc.rect(45, doc.y, 3, 24).fill(TEAL);
           // Priority number circle
           doc.circle(62, doc.y + 12, 8).fill(TEAL);
           doc.fontSize(9).fillColor(WHITE).text(String(i + 1), 55, doc.y + 7, { width: 14, align: "center" });
-          doc.fontSize(9).fillColor(DARK).text(q, 78, doc.y + 7, { width: contentW - 50 });
+          doc.fontSize(9).fillColor(DARK).text(qText, 78, doc.y + 7, { width: contentW - 50 });
           doc.moveDown(0.35);
         });
       }
